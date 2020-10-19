@@ -23,26 +23,24 @@ function http_error() {
 
 
 function create_userdb() {
-    local logins=0
-    local username=""
-    local password=""
     local hass_pw=""
     local addons_pw=""
+    local users=()
+    local passwords=()
+    local user=""
+    #sorry about that, but it way faster than jq
+    local sys_user_rex="[\{\}[:blank:]]*\"homeassistant\"\:[\{\}[:blank:]]*\"password\"\:[[:blank:]]*\"([[:alnum:]]+)\"[\{\}\,[:blank:]]*\"addons\"\:[\{\}[:blank:]]*\"password\"\:[[:blank:]]*\"([[:alnum:]]+)\""
+    mapfile -t passwords <<< $(jq -r '.logins[].password' $CONFIG_PATH)
+    mapfile -t users <<< $(jq -r '.logins[].username' $CONFIG_PATH)
 
-    logins=$(jq --raw-output '.logins | length' $CONFIG_PATH)
-    for (( i=0; i < "$logins"; i++ )); do
-        username="$(jq --raw-output ".logins[$i].username" $CONFIG_PATH)"
-        password="$(jq --raw-output ".logins[$i].password" $CONFIG_PATH)"
-
-        LOCAL_DB["${username}"]="${password}"
+    for i in ${!users[@]}
+    do 
+        user="${users[i]}"
+        LOCAL_DB["${user}"]="${passwords[i]}"
     done
 
     # Add system user to DB
-    hass_pw=$(jq --raw-output '.homeassistant.password' $SYSTEM_USER)
-    addons_pw=$(jq --raw-output '.addons.password' $SYSTEM_USER)
-
-    LOCAL_DB['homeassistant']="${hass_pw}"
-    LOCAL_DB['addons']="${addons_pw}"
+    [[ $(cat $SYSTEM_USER) =~ $sys_user_rex ]] && LOCAL_DB['homeassistant']=${BASH_REMATCH[1]} && LOCAL_DB['addons']=${BASH_REMATCH[2]}
 }
 
 
@@ -72,10 +70,12 @@ function read_request() {
 function get_var() {
     local variable=$1
     local value=""
+    local rex="^.*$variable=([[:alnum:]%[:blank:]]*)(&|$)"
+
     urldecode() { : "${*//+/ }"; echo -e "${_//%/\\x}"; }
 
-    # shellcheck disable=SC2001
-    value="$(echo "$REQUEST_BODY" | sed "s/.*$variable=\([^&]*\).*/\1/g")"
+    [[ $REQUEST_BODY =~ $rex ]] && value="${BASH_REMATCH[1]}"
+    
     urldecode "${value}"
 }
 
